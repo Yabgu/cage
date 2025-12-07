@@ -66,6 +66,10 @@ struct cg_server {
 	bool return_app_code;
 	bool terminated;
 	enum wlr_log_importance log_level;
+	/* Custom output size (requested using --size=WIDTHxHEIGHT) */
+	bool has_custom_size;
+	int custom_width;
+	int custom_height;
 };
 
 void server_terminate(struct cg_server *server);

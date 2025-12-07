@@ -232,6 +232,7 @@ usage(FILE *file, const char *cage)
 		" -m extend Extend the display across all connected outputs (default)\n"
 		" -m last Use only the last connected output\n"
 		" -s\t Allow VT switching\n"
+		" -S, --size WxH\tSet output size (e.g. --size=480x1024)\n"
 		" -v\t Show the version number and exit\n"
 		"\n"
 		" Use -- when you want to pass arguments to APPLICATION\n",
@@ -242,7 +243,14 @@ static bool
 parse_args(struct cg_server *server, int argc, char *argv[])
 {
 	int c;
-	while ((c = getopt(argc, argv, "dDhm:sv")) != -1) {
+	const struct option long_options[] = {
+		{"debug", no_argument, NULL, 'D'},
+		{"help", no_argument, NULL, 'h'},
+		{"size", required_argument, NULL, 'S'},
+		{0, 0, 0, 0},
+	};
+
+	while ((c = getopt_long(argc, argv, "dDhm:sSv", long_options, NULL)) != -1) {
 		switch (c) {
 		case 'd':
 			server->xdg_decoration = true;
@@ -262,6 +270,33 @@ parse_args(struct cg_server *server, int argc, char *argv[])
 			break;
 		case 's':
 			server->allow_vt_switch = true;
+			break;
+		case 'S':
+			if (optarg == NULL) {
+				wlr_log(WLR_ERROR, "Missing size value for -S/--size");
+				return false;
+			}
+			{
+				char *x = strchr(optarg, 'x');
+				if (!x) {
+					x = strchr(optarg, 'X');
+				}
+				if (!x) {
+					wlr_log(WLR_ERROR, "Size must be in WIDTHxHEIGHT format: '%s'", optarg);
+					return false;
+				}
+				*x = '\0';
+				int w = atoi(optarg);
+				int h = atoi(x + 1);
+				if (w <= 0 || h <= 0) {
+					wlr_log(WLR_ERROR, "Invalid size values: '%s'", optarg);
+					return false;
+				}
+				server->has_custom_size = true;
+				server->custom_width = w;
+				server->custom_height = h;
+				wlr_log(WLR_DEBUG, "Custom size requested: %dx%d", server->custom_width, server->custom_height);
+			}
 			break;
 		case 'v':
 			fprintf(stdout, "Cage version " CAGE_VERSION "\n");

@@ -100,17 +100,58 @@ static void
 output_enable(struct cg_output *output)
 {
 	struct wlr_output *wlr_output = output->wlr_output;
+	struct cg_server *server = output->server;
 
 	/* Outputs get enabled by the backend before firing the new_output event,
 	 * so we can't do a check for already enabled outputs here unless we
 	 * duplicate the enabled property in cg_output. */
 	wlr_log(WLR_DEBUG, "Enabling output %s", wlr_output->name);
+	/* Log output backend type and whether a custom size was requested */
+#if WLR_HAS_X11_BACKEND
+	const char *backend_type = wlr_output_is_wl(wlr_output) ? "wayland" : (wlr_output_is_x11(wlr_output) ? "x11" : "drm");
+#else
+	const char *backend_type = wlr_output_is_wl(wlr_output) ? "wayland" : "drm";
+#endif
+	wlr_log(WLR_DEBUG, "New output %s: backend=%s, has_custom_size=%d", wlr_output->name, backend_type,
+		server->has_custom_size);
 
 	struct wlr_output_state state = {0};
 	wlr_output_state_set_enabled(&state, true);
+	/* If a custom size was requested via --size, attempt to apply it on new outputs first. */
+	if (server->has_custom_size) {
+		wlr_log(WLR_DEBUG, "New output %s: server has custom size request %dx%d", wlr_output->name,
+			server->custom_width, server->custom_height);
+		struct wlr_output_state test_state = state;
+		wlr_output_state_set_custom_mode(&test_state, server->custom_width, server->custom_height, 0);
+		if (wlr_output_test_state(wlr_output, &test_state)) {
+			wlr_output_state_set_custom_mode(&state, server->custom_width, server->custom_height, 0);
+			wlr_log(WLR_DEBUG, "New output %s: using custom size %dx%d", wlr_output->name,
+				server->custom_width, server->custom_height);
+		} else {
+			wlr_log(WLR_DEBUG, "New output %s: custom size %dx%d not supported; falling back to modes",
+				wlr_output->name, server->custom_width, server->custom_height);
+		}
+	}
+	/* If a custom size was requested, attempt once to set a custom mode; if
+	 * it is not supported, fall back to selecting a supported mode. */
+	if (server->has_custom_size) {
+		struct wlr_output_state test_state = state;
+		wlr_output_state_set_custom_mode(&test_state, server->custom_width, server->custom_height, 0);
+		if (wlr_output_test_state(wlr_output, &test_state)) {
+			wlr_output_state_set_custom_mode(&state, server->custom_width, server->custom_height, 0);
+			wlr_log(WLR_DEBUG, "Using custom size %dx%d for output %s",
+				server->custom_width, server->custom_height, wlr_output->name);
+		} else {
+			wlr_log(WLR_DEBUG, "Custom size %dx%d not supported for output %s, will try other modes",
+				server->custom_width, server->custom_height, wlr_output->name);
+		}
+	}
 
 	if (wlr_output_commit_state(wlr_output, &state)) {
 		output_layout_add_auto(output);
+		wlr_log(WLR_DEBUG, "Output %s committed with final size %dx%d (requested custom %dx%d)",
+			wlr_output->name, wlr_output->width, wlr_output->height, server->custom_width,
+			server->custom_height);
 	}
 
 	update_output_manager_config(output->server);
@@ -271,7 +312,27 @@ handle_new_output(struct wl_listener *listener, void *data)
 
 	struct wlr_output_state state = {0};
 	wlr_output_state_set_enabled(&state, true);
-	if (!wl_list_empty(&wlr_output->modes)) {
+	
+	/* If a custom size was requested via --size, attempt to apply it on new outputs first. */
+	bool custom_mode_applied = false;
+	if (server->has_custom_size) {
+		wlr_log(WLR_DEBUG, "New output %s: attempting custom size %dx%d", wlr_output->name,
+			server->custom_width, server->custom_height);
+		struct wlr_output_state test_state = state;
+		wlr_output_state_set_custom_mode(&test_state, server->custom_width, server->custom_height, 0);
+		if (wlr_output_test_state(wlr_output, &test_state)) {
+			wlr_output_state_set_custom_mode(&state, server->custom_width, server->custom_height, 0);
+			wlr_log(WLR_DEBUG, "New output %s: using custom size %dx%d", wlr_output->name,
+				server->custom_width, server->custom_height);
+			custom_mode_applied = true;
+		} else {
+			wlr_log(WLR_DEBUG, "New output %s: custom size %dx%d not supported; falling back to modes",
+				wlr_output->name, server->custom_width, server->custom_height);
+		}
+	}
+	
+	/* Only try standard modes if custom mode was not applied */
+	if (!custom_mode_applied && !wl_list_empty(&wlr_output->modes)) {
 		struct wlr_output_mode *preferred_mode = wlr_output_preferred_mode(wlr_output);
 		if (preferred_mode) {
 			wlr_output_state_set_mode(&state, preferred_mode);
@@ -304,6 +365,9 @@ handle_new_output(struct wl_listener *listener, void *data)
 	wlr_log(WLR_DEBUG, "Enabling new output %s", wlr_output->name);
 	if (wlr_output_commit_state(wlr_output, &state)) {
 		output_layout_add_auto(output);
+		wlr_log(WLR_DEBUG, "Output %s committed with final size %dx%d (requested custom %dx%d)",
+			wlr_output->name, wlr_output->width, wlr_output->height, server->custom_width,
+			server->custom_height);
 	}
 
 	view_position_all(output->server);

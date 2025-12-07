@@ -44,6 +44,11 @@ KMS+DRM backend. In debug mode (default build type with Meson), press
 <kbd>Alt</kbd>+<kbd>Esc</kbd> to quit. For more configuration options, see
 [Configuration](https://github.com/cage-kiosk/cage/wiki/Configuration).
 
+You can request a custom output size when starting Cage using the new
+`--size=WIDTHxHEIGHT` (or `-S WIDTHxHEIGHT`) option. Note that not all backends
+support custom modes — nested Wayland/X11 outputs tend to accept them while
+hardware DRM/KMS outputs may not.
+
 Cage is based on the annotated source of tinywl and rootston.
 
 ## Bugs
